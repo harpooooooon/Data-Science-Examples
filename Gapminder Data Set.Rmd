@@ -1,0 +1,243 @@
+---
+title: "Gapminder Data Set"
+author: "Nipunjeet Gujral"
+date: "Jan 01 2019"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      smooth_scroll: true
+    theme: flatly
+    highlight: haddock
+    code_folding: hide 
+---
+
+# 0: Exec Summary
+# 1: Libraries
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# data
+library(gapminder)
+# data manipulation
+library(tidyverse)
+# exploritory data analysis
+library(knitr)
+library(mclust)
+library(factoextra)
+library(olsrr)
+# plotting 
+library(plotly)
+library(gridExtra)
+# machine learning
+library(rpart)
+library(caret)
+library(neuralnet)
+```
+
+| Library    | Purpose                        |
+|:-----------|:-------------------------------|
+| gapminder  | Data set                       |
+| tidyverse  | Data manipulation              |
+| mclust     | Cluster analysis               |
+| factoextra | Cluster visualization          |
+| olsrr      | Regression analysis            |
+| plotly     | Data visualization             |
+| gridExtra  | Manipulating plot display grid | 
+| caret      | Evaluated model                |
+| rpart      | Construct decision trees       |
+| neuralnet  | Construct neural networks      | 
+
+# 2: Exploritory Data Analysis
+
+## 2.1: Import data set
+```{r}
+data <- gapminder::gapminder %>% 
+  tibble::as_tibble()
+```
+
+## 2.2 View data set
+```{r}
+knitr::kable(data[1:5, ], caption = "Gapminder Viewing Sample")
+```
+
+## 2.3: Variable types
+
+| Variable  | Description                                              | Type   | 
+|:----------|:---------------------------------------------------------|:-------|
+| country   | country under study                                      | factor |
+| continent | geographic grouping of country                           | factor |
+| year      | year observations were collected                         | int    |
+| lifeExp   | average life expectancy for male and females             | num    | 
+| pop       | estimated country population                             | int    |
+| gdpPercap | Average Gross Domestic Product per individual in country | num    | 
+
+
+## 2.4 Plotting data set
+```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+plot(data, lower.panel = NULL)
+```
+
+**Comments:** 
+  
+  >
+    * Data is recorded every 5 years starting from 1950's till early 2000's
+    * Analysy involving `lifeExp` and/or `pop` may require the application of a $log()$ transformation
+    * `lifeExp` and `continent` have high desinties near the extremes of `lifeExp`
+    * Graphing variables parametrically as a function of the variable `year` seems to be necessary
+    * A total of 12 data points were collected for every country, grou_by statements will be necessary
+    
+## 2.5: As a function of time    
+```{r fig.height=8, fig.width=10, fig.align="left", message=FALSE, warning=FALSE}
+data %>% 
+  dplyr::mutate(gdpPercap_log = log(gdpPercap)) %>%               # log transform gdpPercap
+  plotly::plot_ly(x = ~gdpPercap_log, y = ~lifeExp,               # define axes
+                  type = "scatter", mode= "markers",              # define type of graph
+                  size = ~pop, color = ~continent,                # define color and size of points
+                  text = ~country, hoverinfo = "text",            # define hover text 
+                  frame = ~year) %>%                              # define animation frame
+  plotly::animation_opts(1000, easing = "linear", redraw = FALSE) # define animation stlye
+```
+
+**Comments:**  
+
+  >
+    * This single graph depicts, in some manner, all 6 of this data sets variables
+    * There exists a very poistive outlook for the future of human kind. All countries do seem to have a positive trend over time, with the exception of a few dips, notebaly in Asia and Africa during        the 1950s and 1990s, resepctively
+    * There exist many overlapping country from different `continents`. But there does does seem to be a solid grouping of `countries/continents` with higher life expectancies. Clustering may reveal         said groups.   
+    
+    
+# 3: Cluster Analysis    
+
+## 3.1: Massaging the data
+#### Reducing and rescaling data to only numeric columns as clustering can only be done on numeric values 
+```{r fig.height=10, fig.width=10, message=FALSE, warning=FALSE}
+rescale <- function(x){
+  (x - min(x))/ max(x)
+}
+
+sample1 <- data %>%                           
+  dplyr::filter(year == 1952) %>%            # filter to data from 1952
+  dplyr::select(lifeExp, pop, gdpPercap) %>% # select numerical values
+  tidyr::drop_na() %>%                       # drop rows any missing data
+  dplyr::mutate_all(rescale)                 # rescaling the data to the interval from [0,1]
+
+
+
+sample2 <- data %>%                           
+  dplyr::filter(year == 2007) %>%            # filter to data from 2007
+  dplyr::select(lifeExp, pop, gdpPercap) %>% # select numerical values
+  tidyr::drop_na() %>%                       # drop rows any missing data
+  dplyr::mutate_all(rescale)                 # rescaling the data to the interval from [0,1]
+```
+
+
+## 3.2: K-means Clustersing
+
+Formally described as:
+
+$$min \sum_{i = 1}^{k} \sum_{i \in S} || x_{i} - \mu_{s}||^2 = min \sum_{i = 1}^{k} |S_{i}| Var(S_{i})$$
+
+for $\mu_{i}$ = mean of a point in a group $S_{i}$
+
+
+Or more simply, given a set of observations $(x_{1}, x_{2}, …, x_{n})$, where each observation is a D-dimensional real vector. K-Means clustering aims to partition the $n$ observations into $k ≤ n$ sets $S = {S_{1}, S_{2}, …, S_{k}}$ so as to minimize the within-cluster sum of squares, also know as varaiance.
+
+
+#### Data from 1952 and data from 2007, respectively
+```{r fig.height=8, fig.width=15, fig.align='center'}
+# perfrom K-Means clustering using the Lloyd algorithm with data from 1952
+plot1 <- stats::kmeans(x = sample1, 
+              centers = 5, 
+              nstart = 40, 
+              iter.max = 100, 
+              algorithm = "Lloyd") %>% 
+  factoextra::fviz_cluster(data = sample1,
+                           ellipse.type = "convex",
+                           palette = "jco",
+                           ggtheme = theme_minimal(),
+                           main = "K-Means Clustering for 1952")
+
+# perfrom K-Means clustering using the Lloyd algorithm with data from 2007
+plot2 <- stats::kmeans(x = sample2, 
+              centers = 5, 
+              nstart = 40, 
+              iter.max = 100, 
+              algorithm = "Lloyd") %>% 
+  factoextra::fviz_cluster(data = sample2,
+                           ellipse.type = "convex",
+                           palette = "jco",
+                           ggtheme = theme_minimal(),
+                           main = "K-Means Clustering for 2007")
+
+# group the images together for side-by-side comparison
+gridExtra::grid.arrange(plot1, plot2, ncol = 2)
+```
+
+
+## 3.3: Hierarchical Clustering 
+
+Clustering using the the `ward.D` algorithm with disitance measured using Manhattan Distance, defined as 
+
+
+
+```{r fig.height=6, fig.width=12, message=FALSE, warning=FALSE}
+plot1 <- sample1 %>%                           # data from 1952
+  stats::dist(method = "manhattan") %>%        # constructing a Euclidean Distance matrix
+  stats::hclust(method = "ward.D") %>%         # performing hierarchical clustering with the centroid algorithm
+  fviz_dend(k = 5,                             # cut in 5 groups
+          cex = 0.5,                           # label size
+          k_colors = c("#3959DB", "#5F8A4B", "#917571", "#E0A855", "#07A693"), # defining sets of color
+          color_labels_by_k = TRUE,            # color labels by groups
+          rect = TRUE,                         # add rectangle around groups
+          main = "K-Means Dendogram for 1952") # title                     
+  
+
+
+plot2 <- sample2 %>%                           # data from 2007
+  stats::dist(method = "manhattan") %>%        # constructing a Euclidean Distance matrix
+  stats::hclust(method = "ward.D") %>%         # performing hierarchical clustering with the centroid algorithm
+  fviz_dend(k = 5,                             # cut in 5 groups
+          cex = 0.5,                           # label size
+          k_colors = c("#3959DB", "#5F8A4B", "#917571", "#E0A855", "#07A693"), # defining sets of color
+          color_labels_by_k = TRUE,            # color labels by groups
+          rect = TRUE,                         # Add rectangle around groups
+          main = "K-Means Dendogram for 1952") # title
+  
+# group the images together for side-by-side comparison
+gridExtra::grid.arrange(plot1, plot2, ncol = 2)
+```
+
+
+## 3.4: Assessing clustering tendency
+
+Clustering is performed by "row averaging", defined as:
+
+$$R_{i} = \frac{1}{i - \rho_{i}} \sum_{j = \rho_{i}}^{i-1} r_{i,j}$$ 
+true  $\forall i$ such that $2 \le i \le n $ and $n \in N$
+
+
+Assesment is conducted by using the Hopkin's score for a cluster's entropy defined as:
+
+$$ H = \frac {\sum_{i = 1}^{n} y_{i}} {\sum_{i = 1}^{n}x_{i} + \sum_{i = 1}^{n}y_{i}} $$
+ for a set of point $(x_{1}, y_{1}) ... (x_{n}, y_{n})$  in some cluster $S_{i}$
+
+
+```{r  message=FALSE, warning=FALSE, fig.height=4, fig.width=10}
+# Definning a color gradient
+gradient.color <- list(low = "steelblue",  high = "white")
+
+# Data from 1952
+cluster1 <- sample1 %>% # drop rows any missing data             
+  factoextra::get_clust_tendency(n = 50, gradient = gradient.color) 
+
+# Data from 2007
+cluster2 <- sample2 %>% # drop rows any missing data            
+  factoextra::get_clust_tendency(n = 50, gradient = gradient.color) 
+
+gridExtra::grid.arrange(cluster1$plot, cluster2$plot, ncol = 2)
+
+print(paste("Hopkin's score, measuring cluster randomness, for data from 1952:", round(cluster1$hopkins_stat, digits = 3), sep = " "))
+print(paste("Hopkin's score, measuring cluster randomness, for data from 2007:", round(cluster2$hopkins_stat, digits = 3), sep = " "))
+```
+
+
